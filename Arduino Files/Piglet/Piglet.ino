@@ -37,6 +37,7 @@
 #include "MeshNode.h"
 #include "WardriveGoBLE.h"
 #include "FirmwareUpdate.h"
+#include "MasterFeedback.h"
 
 // -------- Battery Test (uncomment to enable) --------
 #include "battery_test.h"
@@ -611,6 +612,7 @@ void setup() {
     }
   }
 
+  masterFeedbackInit();
   updateOLED(0);
 
   // Arm the button boot-settle guard now, right as loop() is about to start —
@@ -657,6 +659,7 @@ void loop() {
       Serial.println(gps.location.lng(), 6);
     }
   }
+  masterFeedbackTick();
 
   // Update last-known-good position every loop — decoupled from scan results
   // so it stays current even when no networks are found.
@@ -787,6 +790,7 @@ void loop() {
     if (allowScan) {
       doScanOnce();
     }
+    masterFeedbackSetScanningActive(allowScan);
   }
 
   // Battery test tick (uncomment to enable)

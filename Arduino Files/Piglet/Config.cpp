@@ -157,6 +157,48 @@ void cfgAssignKV(const String& k, const String& v) {
     String vv = v; vv.toLowerCase();
     cfg.autoUpdateHeadlessNodes = (vv == "true" || vv == "1");
   }
+  else if (k == "deviceRole") {
+    String vv = v; vv.toLowerCase();
+    if (vv == "auto" || vv == "master" || vv == "node") cfg.deviceRole = vv;
+  }
+  else if (k == "ws2811Enable") {
+    String vv = v; vv.toLowerCase();
+    cfg.ws2811Enable = (vv == "true" || vv == "1");
+  }
+  else if (k == "ws2811Pin") {
+    cfg.ws2811Pin = v.toInt();
+  }
+  else if (k == "ws2811Brightness") {
+    int b = v.toInt();
+    if (b >= 0 && b <= 255) cfg.ws2811Brightness = (uint8_t)b;
+  }
+  else if (k == "buzzerEnable") {
+    String vv = v; vv.toLowerCase();
+    cfg.buzzerEnable = (vv == "true" || vv == "1");
+  }
+  else if (k == "buzzerPin") {
+    cfg.buzzerPin = v.toInt();
+  }
+  else if (k == "buzzerType") {
+    String vv = v; vv.toLowerCase();
+    if (vv == "active" || vv == "passive") cfg.buzzerType = vv;
+  }
+  else if (k == "buzzerVolume") {
+    int b = v.toInt();
+    if (b >= 0 && b <= 255) cfg.buzzerVolume = (uint8_t)b;
+  }
+  else if (k == "buzzerStartupTone") {
+    String vv = v; vv.toLowerCase();
+    cfg.buzzerStartupTone = (vv == "true" || vv == "1");
+  }
+  else if (k == "alertGpsFix") {
+    String vv = v; vv.toLowerCase();
+    cfg.alertGpsFix = (vv == "true" || vv == "1");
+  }
+  else if (k == "alertNodeDisconnect") {
+    String vv = v; vv.toLowerCase();
+    cfg.alertNodeDisconnect = (vv == "true" || vv == "1");
+  }
 }
 
 void cfgEnforceMutualExclusion() {
@@ -366,6 +408,22 @@ bool saveConfigToSD() {
   f.println("# confirm prompt instead, regardless of this setting.");
   f.println("# CAUTION: use an SD card rated at least 16GB for sustained-write reliability.");
   f.print("autoUpdateHeadlessNodes="); f.println(cfg.autoUpdateHeadlessNodes ? "true" : "false");
+
+  f.println("");
+  f.println("# Cluster role: auto | master | node (headless scanners use separate firmware)");
+  f.print("deviceRole="); f.println(cfg.deviceRole);
+  f.println("# S3 master WS2811 (verify 5V/12V module + level shifting; data pin must not conflict)");
+  f.print("ws2811Enable="); f.println(cfg.ws2811Enable ? "true" : "false");
+  f.print("ws2811Pin="); f.println(cfg.ws2811Pin);
+  f.print("ws2811Brightness="); f.println(cfg.ws2811Brightness);
+  f.println("# Buzzer (buzzerPin=-1 disables; avoid GPIO3 on S3 EXP_BASE / strapping)");
+  f.print("buzzerEnable="); f.println(cfg.buzzerEnable ? "true" : "false");
+  f.print("buzzerPin="); f.println(cfg.buzzerPin);
+  f.print("buzzerType="); f.println(cfg.buzzerType);
+  f.print("buzzerVolume="); f.println(cfg.buzzerVolume);
+  f.print("buzzerStartupTone="); f.println(cfg.buzzerStartupTone ? "true" : "false");
+  f.print("alertGpsFix="); f.println(cfg.alertGpsFix ? "true" : "false");
+  f.print("alertNodeDisconnect="); f.println(cfg.alertNodeDisconnect ? "true" : "false");
 
   f.flush();
   f.close();

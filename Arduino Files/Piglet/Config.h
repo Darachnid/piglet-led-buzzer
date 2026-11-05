@@ -43,6 +43,25 @@ struct Config {
   // Leave empty for default ("Piglet-Wardriver" / "WiGLE_....csv").
   String deviceName;
 
+  // Device role for cluster builds: master (S3 controller with UI/SD/GPS),
+  // node (headless scanner — usually a separate sketch), or auto (default:
+  // master behavior on full Piglet firmware).
+  String deviceRole = "auto";
+
+  // --- S3 control node: WS2811 on D0, buzzer on D2 (Seeed XIAO ESP32-S3 silkscreen) ---
+  // D0=GPIO1 (data + 330 Ω), D2=GPIO3. User button remains D1/GPIO2 (pins.btn).
+  // Do not use board=exp on this wiring (EXP_BASE uses GPIO3 as SD CS).
+  bool ws2811Enable = true;
+  int  ws2811Pin    = 1;       // D0
+  uint8_t ws2811Brightness = 64;
+  bool buzzerEnable = false;   // default mute; set true when buzzer is wired on D2
+  int  buzzerPin    = 3;       // D2
+  String buzzerType = "active"; // active | passive
+  uint8_t buzzerVolume = 128;  // passive buzzer PWM duty (0-255)
+  bool buzzerStartupTone = false;
+  bool alertGpsFix = true;
+  bool alertNodeDisconnect = true;
+
   // Auto-start mesh mode after boot uploads: core, node, or none (default).
   // core — become the mesh coordinator (receives wardriving records from nodes).
   // node — become a scanning node that forwards records to the Core.

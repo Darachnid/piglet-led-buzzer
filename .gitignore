@@ -8,3 +8,5 @@ tools/
 # build-and-deploy.yml, not committed.
 /web-flasher/firmware/
 /web-flasher/releases.json
+bin/
+**/build/esp32.*/

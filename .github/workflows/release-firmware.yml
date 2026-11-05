@@ -26,7 +26,7 @@ env:
   # replaces the old single-app huge_app scheme as of v3.0 -- required for
   # Update.h-based OTA (both self-update and Core-pushed mesh node updates).
   # Boards still on huge_app need one more full reflash to gain OTA capability.
-  FQBN: "esp32:esp32:XIAO_ESP32C5:CDCOnBoot=cdc,CPUFreq=80,FlashFreq=80,FlashMode=qio,FlashSize=8M,PartitionScheme=default_8MB,DebugLevel=none,PSRAM=enabled,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default"
+  FQBN_BASE: "CDCOnBoot=cdc,CPUFreq=80,FlashFreq=80,FlashMode=qio,FlashSize=8M,PartitionScheme=default_8MB,DebugLevel=none,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default"
 
 jobs:
   build:
@@ -38,16 +38,39 @@ jobs:
         include:
           - name: Piglet
             sketch_dir: "Arduino Files/Piglet"
+            sketch_bin: "Piglet.ino.bin"
+            fqbn: "esp32:esp32:XIAO_ESP32S3:${{ env.FQBN_BASE }},PSRAM=opi"
             display_lib: ssd1306
             needs_ble: true
+            needs_neopixel: true
           - name: TDongleC5_Piglet
             sketch_dir: "TDongleC5_Piglet"
+            sketch_bin: "TDongleC5_Piglet.ino.bin"
+            fqbn: "esp32:esp32:XIAO_ESP32C5:${{ env.FQBN_BASE }},PSRAM=enabled"
             display_lib: st7735
             needs_ble: true
+            needs_neopixel: false
           - name: PigletNode
             sketch_dir: "PigletNode"
+            sketch_bin: "PigletNode.ino.bin"
+            fqbn: "esp32:esp32:XIAO_ESP32C5:${{ env.FQBN_BASE }},PSRAM=enabled"
             display_lib: none
             needs_ble: false
+            needs_neopixel: false
+          - name: PigletNodeC6
+            sketch_dir: "PigletNodeC6"
+            sketch_bin: "PigletNodeC6.ino.bin"
+            fqbn: "esp32:esp32:XIAO_ESP32C6:CDCOnBoot=cdc,PartitionScheme=default"
+            display_lib: none
+            needs_ble: false
+            needs_neopixel: false
+          - name: PigletNodeS3
+            sketch_dir: "PigletNodeS3"
+            sketch_bin: "PigletNodeS3.ino.bin"
+            fqbn: "esp32:esp32:XIAO_ESP32S3:${{ env.FQBN_BASE }},PSRAM=disabled"
+            display_lib: none
+            needs_ble: false
+            needs_neopixel: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -83,6 +106,10 @@ jobs:
         if: matrix.display_lib == 'st7735'
         run: arduino-cli lib install "Adafruit ST7735 and ST7789 Library@1.11.0"
 
+      - name: Install Adafruit NeoPixel (master WS2811)
+        if: matrix.needs_neopixel
+        run: arduino-cli lib install "Adafruit NeoPixel@1.15.1"
+
       - name: Compile ${{ matrix.name }}
         run: |
           set -eu
@@ -95,7 +122,7 @@ jobs:
           rm -rf "$OUT_DIR"
           mkdir -p "$OUT_DIR"
           arduino-cli compile \
-            --fqbn "${{ env.FQBN }}" \
+            --fqbn "${{ matrix.fqbn }}" \
             --output-dir "$OUT_DIR" \
             "${{ matrix.sketch_dir }}"
           echo "OUT_DIR=$OUT_DIR" >> "$GITHUB_ENV"
@@ -111,7 +138,7 @@ jobs:
           # downloader fetches from the release (see FirmwareUpdate.cpp /
           # MeshNode.cpp's coreOtaPreload()). Must stay in sync with the
           # FW_OWN_ASSET / coreOtaImages[] filenames in firmware.
-          cp "$OUT_DIR/${{ matrix.name }}.ino.bin" "$OUT/${{ matrix.name }}.ota.bin"
+          cp "$OUT_DIR/${{ matrix.sketch_bin }}" "$OUT/${{ matrix.name }}.ota.bin"
           ( cd dist && zip -j "${{ matrix.name }}.zip" "${{ matrix.name }}"/*.bin )
           ls -la "$OUT" dist/*.zip
 
@@ -157,11 +184,15 @@ jobs:
           XIAO_VER="$(grep -oE '#define FIRMWARE_VERSION "[^"]+"' "Arduino Files/Piglet/Globals.h" | sed -E 's/.*"(.*)"/\1/')"
           TDONGLE_VER="$(grep -oE '#define FIRMWARE_VERSION "[^"]+"' "TDongleC5_Piglet/TDongleC5_Piglet.ino" | sed -E 's/.*"(.*)"/\1/')"
           NODE_VER="$(grep -oE '#define FIRMWARE_VERSION "[^"]+"' "PigletNode/PigletNode.ino" | sed -E 's/.*"(.*)"/\1/')"
+          NODE_C6_VER="$(grep -oE '#define FIRMWARE_VERSION "[^"]+"' "PigletNodeC6/PigletNodeC6.ino" | sed -E 's/.*"(.*)"/\1/')"
+          NODE_S3_VER="$(grep -oE '#define FIRMWARE_VERSION "[^"]+"' "PigletNodeS3/PigletNodeS3.ino" | sed -E 's/.*"(.*)"/\1/')"
           cat > release_assets/versions.json <<EOF
           {
-            "xiao_c5": "${XIAO_VER}",
+            "xiao_s3": "${XIAO_VER}",
             "tdongle_c5": "${TDONGLE_VER}",
-            "pigletnode_c5": "${NODE_VER}"
+            "pigletnode_c5": "${NODE_VER}",
+            "pigletnode_c6": "${NODE_C6_VER}",
+            "pigletnode_s3": "${NODE_S3_VER}"
           }
           EOF
           cat release_assets/versions.json

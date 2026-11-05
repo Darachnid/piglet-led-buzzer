@@ -129,3 +129,15 @@ struct CoreUpdatePromptStatus {
 };
 CoreUpdatePromptStatus coreUpdatePromptStatus();
 void                   coreUpdatePromptConfirm();  // call when a single press lands while promptActive
+
+struct MeshCoreOverview {
+  uint8_t  nodeCount;
+  uint8_t  c6Count;
+  uint8_t  s3NodeCount;
+  uint8_t  c5NodeCount;
+  uint32_t recordsRx;
+  uint32_t networksLocal;
+  bool     gpsFix;
+  bool     scanningActive;
+};
+MeshCoreOverview meshCoreOverview();

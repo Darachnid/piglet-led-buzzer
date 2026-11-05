@@ -9,7 +9,9 @@ struct PinMap {
   const char* name;  // "S3" / "C6" / etc
 };
 
-// --- S3 default pins (your original) ---
+// --- S3 default pins (authoritative for Piglet firmware; README pin table may differ) ---
+// Mesh control-node extras (Config.h / MasterFeedback.cpp, not in PinMap):
+//   WS2811 data — D0 / GPIO1   |   Buzzer — D2 / GPIO3   |   Button — D1 / GPIO2 (btn)
 static const PinMap PINS_S3 = {
   5, 6,
   4, 7, 8, 9,

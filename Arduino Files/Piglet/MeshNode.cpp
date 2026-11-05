@@ -7,6 +7,8 @@
 #include "WardriveGoBLE.h"
 #include "YieldSched.h"
 #include "OtaProto.h"
+#include "PigletBoardCaps.h"
+#include "MasterFeedback.h"
 #include <esp_now.h>
 #include "esp_wifi.h"
 #include <Update.h>
@@ -746,13 +748,16 @@ static const uint32_t CORE_OTA_ACK_TIMEOUT_MS   = 250;      // no ack progress -
 static const uint32_t CORE_OTA_STALL_MS         = 10000;    // no ack progress at all -> give up
 static const uint32_t CORE_OTA_RESULT_SHOW_MS   = 15000;    // keep Done/Failed visible this long
 static const uint32_t CORE_OTA_MAX_IMAGE        = 0x330000; // size of an ota_0/ota_1 slot in default_8MB
-static const uint16_t CORE_OTA_CHIP_ESP32C5     = 23;       // esp_image_header_t.chip_id for the C5
+static const uint16_t CORE_OTA_CHIP_ESP32C5     = 23;
+static const uint16_t CORE_OTA_CHIP_ESP32S3     = 9;
+static const uint16_t CORE_OTA_CHIP_ESP32C6     = 13;
 
 // Per-board-type image, preloaded from the Core's SD card at boot.
 struct CoreOtaImage {
   uint8_t     boardType;    // PigletBoardType this file is for
   const char* path;         // /Firmware/<Board>.ota.bin
   const char* label;        // short tag for status messages
+  uint16_t    expectedChip; // esp_image_header_t.chip_id; 0 = do not push (ambiguous)
   uint8_t*    image;        // whole image in PSRAM, null if not loaded
   uint32_t    size;
   uint16_t    chunks;
@@ -760,9 +765,11 @@ struct CoreOtaImage {
   char        failMsg[28];  // why this image is not loaded
 };
 static CoreOtaImage coreOtaImages[] = {
-  { PIGLET_BOARD_NODE,    "/Firmware/PigletNode.ota.bin",       "Node",    nullptr, 0, 0, {0}, {0} },
-  { PIGLET_BOARD_XIAO,    "/Firmware/Piglet.ota.bin",           "XIAO",    nullptr, 0, 0, {0}, {0} },
-  { PIGLET_BOARD_TDONGLE, "/Firmware/TDongleC5_Piglet.ota.bin", "TDongle", nullptr, 0, 0, {0}, {0} },
+  { PIGLET_BOARD_NODE,    "/Firmware/PigletNode.ota.bin",       "C5Node",  CORE_OTA_CHIP_ESP32C5, nullptr, 0, 0, {0}, {0} },
+  { PIGLET_BOARD_C6,      "/Firmware/PigletNodeC6.ota.bin",     "C6Node",  CORE_OTA_CHIP_ESP32C6, nullptr, 0, 0, {0}, {0} },
+  { PIGLET_BOARD_S3_NODE, "/Firmware/PigletNodeS3.ota.bin",     "S3Node",  CORE_OTA_CHIP_ESP32S3, nullptr, 0, 0, {0}, {0} },
+  { PIGLET_BOARD_XIAO,    "/Firmware/Piglet.ota.bin",           "XIAO",    0,                     nullptr, 0, 0, {0}, {0} },
+  { PIGLET_BOARD_TDONGLE, "/Firmware/TDongleC5_Piglet.ota.bin", "TDongle", CORE_OTA_CHIP_ESP32C5, nullptr, 0, 0, {0}, {0} },
 };
 static const int CORE_OTA_IMAGE_COUNT = (int)(sizeof(coreOtaImages) / sizeof(coreOtaImages[0]));
 
@@ -825,8 +832,18 @@ static void coreOtaLoadOne(CoreOtaImage& im) {
   if (got != size) { heap_caps_free(img); snprintf(im.failMsg, sizeof(im.failMsg), "SD READ ERROR"); return; }
   if (img[0] != 0xE9) { heap_caps_free(img); snprintf(im.failMsg, sizeof(im.failMsg), "NOT AN APP IMAGE"); return; }
   uint16_t chip = (uint16_t)(img[12] | (img[13] << 8));
-  if (chip != CORE_OTA_CHIP_ESP32C5) {
-    heap_caps_free(img); snprintf(im.failMsg, sizeof(im.failMsg), "NOT A C5 IMAGE"); return;
+  if (im.expectedChip != 0) {
+    if (chip != im.expectedChip) {
+      heap_caps_free(img);
+      snprintf(im.failMsg, sizeof(im.failMsg), "CHIP MISMATCH");
+      return;
+    }
+  } else if (chip != CORE_OTA_CHIP_ESP32C5) {
+    // Piglet.ota.bin remains multi-board in name only — refuse non-C5 images
+    // so a Core cannot push the wrong silicon over ESP-NOW.
+    heap_caps_free(img);
+    snprintf(im.failMsg, sizeof(im.failMsg), "NOT A C5 IMAGE");
+    return;
   }
   mbedtls_sha256(img, size, im.sha, 0);
   im.image  = img;
@@ -1065,9 +1082,12 @@ static void coreUpdateDetect() {
       if (n.updateDeclined || coreUpdateAlreadyQueued(i)) continue;
       if (!coreOtaHasImage(PIGLET_BOARD_XIAO)) continue;
       if (pendingUpdateCount < CORE_MAX_NODES) pendingUpdateNodes[pendingUpdateCount++] = i;
-    } else if (n.boardType == PIGLET_BOARD_NODE && cfg.autoUpdateHeadlessNodes) {
+    } else if (cfg.autoUpdateHeadlessNodes &&
+               (n.boardType == PIGLET_BOARD_NODE ||
+                n.boardType == PIGLET_BOARD_C6 ||
+                n.boardType == PIGLET_BOARD_S3_NODE)) {
       if (n.autoUpdateAttempted || coreOtaBusy()) continue;
-      if (!coreOtaHasImage(PIGLET_BOARD_NODE)) continue;
+      if (!coreOtaHasImage(n.boardType)) continue;
       n.autoUpdateAttempted = true;  // set before starting -- never retry-loop a failing node
       Serial.printf("[CORE] Auto-updating headless node %d (%s -> %s)\n", i, n.version, FIRMWARE_VERSION);
       coreOtaStart(i);
@@ -1256,6 +1276,14 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
         jcmkAssignVer = adm->assignment_version;
         jcmkStartIdx  = adm->start_channel_idx;
         jcmkEndIdx    = adm->end_channel_idx;
+        uint8_t maxCh = pigletBoardMaxJcmkChIdx(PIGLET_THIS_BOARD_TYPE, true);
+#if defined(CONFIG_IDF_TARGET_ESP32C6) || defined(CONFIG_IDF_TARGET_ESP32C3)
+        maxCh = PIGLET_JCMK_24G_LAST_IDX;
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
+        if (!wardriverIsC5()) maxCh = PIGLET_JCMK_24G_LAST_IDX;
+#endif
+        if (jcmkEndIdx > maxCh) jcmkEndIdx = maxCh;
+        if (jcmkStartIdx > maxCh) jcmkStartIdx = 0;
       }
       // Transmit-slot fields (node_index/node_count) are only meaningful when
       // paired with a confirmed Piglet Core; refreshed every ADMIN regardless
@@ -1472,6 +1500,21 @@ static void coreFindOrAddNode(const uint8_t* mac, bool isBiscuit, bool isPiglet,
   Serial.println("[CORE] Max nodes reached");
 }
 
+static void coreAssignPool(uint8_t* list, uint8_t nSlots, uint8_t baseIdx, uint8_t poolLen) {
+  if (nSlots == 0 || poolLen == 0) return;
+  uint8_t per = poolLen / nSlots;
+  uint8_t rem = poolLen % nSlots;
+  uint8_t cur = baseIdx;
+  for (uint8_t n = 0; n < nSlots; n++) {
+    uint8_t slot = list[n];
+    uint8_t len = per + (n < rem ? 1 : 0);
+    if (len == 0) len = 1;
+    coreNodes[slot].startIdx = cur;
+    coreNodes[slot].endIdx   = cur + len - 1;
+    cur += len;
+  }
+}
+
 static void coreReassignChannels() {
   // Build list of active slot indices
   uint8_t slots[CORE_MAX_NODES];
@@ -1480,16 +1523,19 @@ static void coreReassignChannels() {
     if (coreNodes[i].active) slots[count++] = i;
   if (count == 0) return;
 
-  // Split JCMK_CHANNELS[] evenly; last node gets the remainder
-  uint8_t perNode  = JCMK_NUM_CHANNELS / count;
-  uint8_t startIdx = 0;
+  // Capability-aware split: 2.4 GHz indices 0..13 for RF24-only nodes; full
+  // JCMK table for dual-band nodes (C5 / legacy JCMK). Never assign 5 GHz
+  // slices to ESP32-C6 or headless S3 nodes.
+  uint8_t rf24[CORE_MAX_NODES], rf24Count = 0;
+  uint8_t dual[CORE_MAX_NODES], dualCount = 0;
   for (uint8_t n = 0; n < count; n++) {
-    coreNodes[slots[n]].startIdx = startIdx;
-    coreNodes[slots[n]].endIdx   = (n < count - 1)
-                                   ? (startIdx + perNode - 1)
-                                   : (JCMK_NUM_CHANNELS - 1);
-    startIdx += perNode;
+    uint8_t slot = slots[n];
+    uint8_t maxIdx = pigletBoardMaxJcmkChIdx(coreNodes[slot].boardType, coreNodes[slot].isPiglet);
+    if (maxIdx <= PIGLET_JCMK_24G_LAST_IDX) rf24[rf24Count++] = slot;
+    else dual[dualCount++] = slot;
   }
+  coreAssignPool(rf24, rf24Count, 0, PIGLET_JCMK_24G_LAST_IDX + 1);
+  coreAssignPool(dual, dualCount, 0, PIGLET_JCMK_NUM_CHANNELS);
 
   // Manual overrides win over the even split for any matching MAC -- applied
   // after the split so an overridden node's range doesn't skew how the
@@ -2024,9 +2070,12 @@ void coreModeTick() {
       memset(&coreNodes[i], 0, sizeof(CoreNodeInfo));
       coreNodeCount--;
       changed = true;
+      masterFeedbackOnNodeDisconnect();
     }
   }
   if (changed) coreReassignChannels();
+
+  masterFeedbackSetScanningActive(scanningEnabled && sdOk);
 }
 
 // ================================================================
@@ -2162,6 +2211,25 @@ static const char* scrollText(const char* full, uint8_t windowChars) {
 // ================================================================
 //  OLED page renderer (page 5) — handles both Node and Core mode
 // ================================================================
+MeshCoreOverview meshCoreOverview() {
+  MeshCoreOverview o = {};
+  o.nodeCount = coreNodeCount;
+  o.recordsRx = coreRecordsRx;
+  o.networksLocal = networksFound2G + networksFound5G;
+  o.gpsFix = gpsHasFix;
+  o.scanningActive = scanningEnabled && sdOk;
+  for (uint8_t i = 0; i < CORE_MAX_NODES; i++) {
+    if (!coreNodes[i].active) continue;
+    switch (coreNodes[i].boardType) {
+      case PIGLET_BOARD_C6:      o.c6Count++; break;
+      case PIGLET_BOARD_S3_NODE: o.s3NodeCount++; break;
+      case PIGLET_BOARD_NODE:    o.c5NodeCount++; break;
+      default: break;
+    }
+  }
+  return o;
+}
+
 void drawPageMeshNode() {
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
@@ -2222,63 +2290,54 @@ void drawPageMeshNode() {
       return;
     }
 
-    // ---- Core mode ----
+    // ---- Core mode (mesh cluster overview) ----
+    MeshCoreOverview ov = meshCoreOverview();
     display.print("CORE");
-    // Node count in small text next to header
     display.setTextSize(1);
-    char nb[5]; snprintf(nb, sizeof(nb), "[%d]", coreNodeCount);
     display.setCursor(52, 5);
-    display.print(nb);
+    display.print(ov.gpsFix ? "GPS:OK" : "GPS:--");
     display.drawFastHLine(0, 15, 128, SSD1306_WHITE);
 
     display.setTextSize(1);
-
-    // Row 1 (y=17): status
     display.setCursor(0, 17);
-    if (coreNodeCount == 0) {
-      display.print("Waiting for nodes");
-    } else {
-      char buf[22];
-      snprintf(buf, sizeof(buf), "%d node%s connected",
-               coreNodeCount, coreNodeCount == 1 ? "" : "s");
-      display.print(buf);
-    }
+    char line1[22];
+    snprintf(line1, sizeof(line1), "Nodes:%u C6:%u S3:%u",
+             (unsigned)ov.nodeCount, (unsigned)ov.c6Count, (unsigned)ov.s3NodeCount);
+    display.print(line1);
 
-    // Rows 2-3 (y=26, y=35): first 2 active node slots
-    uint8_t shown = 0;
-    for (uint8_t i = 0; i < CORE_MAX_NODES && shown < 2; i++) {
-      int y = (shown == 0) ? 26 : 35;
-      display.setCursor(0, y);
-      if (coreNodes[i].active) {
-        uint8_t* m = coreNodes[i].mac;
-        uint8_t si = coreNodes[i].startIdx, ei = coreNodes[i].endIdx;
-        char buf[22];
-        snprintf(buf, sizeof(buf), "%02X:%02X:%02X %d-%d",
-                 m[3], m[4], m[5],
-                 (si < JCMK_NUM_CHANNELS) ? JCMK_CHANNELS[si] : 0,
-                 (ei < JCMK_NUM_CHANNELS) ? JCMK_CHANNELS[ei] : 0);
-        display.print(buf);
-        shown++;
-      }
-    }
-    if (shown == 0) {
-      display.setCursor(0, 26); display.print("--:--:-- ------");
-      display.setCursor(0, 35); display.print("--:--:-- ------");
-    } else if (shown == 1) {
-      display.setCursor(0, 35); display.print("--:--:-- ------");
-    }
+    display.setCursor(0, 26);
+    char line2[22];
+    snprintf(line2, sizeof(line2), "Net:%lu Rcvd:%lu",
+             (unsigned long)ov.networksLocal, (unsigned long)ov.recordsRx);
+    display.print(line2);
 
-    // Row 4 (y=44): total records received
+    display.setCursor(0, 35);
+    display.print(ov.scanningActive ? "Scan:ACTIVE" : "Scan:PAUSED");
+
+    // First connected node MAC + channel slice (disconnected slots time out silently)
     display.setCursor(0, 44);
-    char rbuf[22];
-    snprintf(rbuf, sizeof(rbuf), "Rcvd: %lu", (unsigned long)coreRecordsRx);
-    display.print(rbuf);
+    bool anyNode = false;
+    for (uint8_t i = 0; i < CORE_MAX_NODES; i++) {
+      if (!coreNodes[i].active) continue;
+      anyNode = true;
+      uint8_t* m = coreNodes[i].mac;
+      char buf[22];
+      snprintf(buf, sizeof(buf), "%02X:%02X ch%u-%u", m[4], m[5],
+               (unsigned)((coreNodes[i].startIdx < JCMK_NUM_CHANNELS) ? JCMK_CHANNELS[coreNodes[i].startIdx] : 0),
+               (unsigned)((coreNodes[i].endIdx < JCMK_NUM_CHANNELS) ? JCMK_CHANNELS[coreNodes[i].endIdx] : 0));
+      display.print(buf);
+      break;
+    }
+    if (!anyNode) display.print("Waiting for nodes...");
 
-    // Row 5 (y=53): GPS + hint (or WG status if the bridge is enabled)
     display.setCursor(0, 53);
-    display.print(gpsHasFix ? "GPS:FIX" : "GPS:---");
-    display.setCursor(62, 53);
     display.print(cfg.wardriveGoBridge ? wgStatusLabel() : "Hold=Node");
+    if (!cfg.wardriveGoBridge && ov.c5NodeCount > 0) {
+      display.setCursor(72, 53);
+      char c5b[8];
+      snprintf(c5b, sizeof(c5b), "C5:%u", (unsigned)ov.c5NodeCount);
+      display.print(c5b);
+    }
 
   } else {
     // ---- Node mode (original layout) ----

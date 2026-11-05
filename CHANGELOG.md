@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.02-cluster (2026-11-05)
+
+### New Features
+- **Multi-ESP32 wardriving cluster** — ESP32-S3 master (full Piglet) with optional WS2811 + buzzer feedback, plus headless **PigletNodeC6** and **PigletNodeS3** scanner firmware. See `docs/MULTI_ESP32_CLUSTER.md`.
+- **Capability-aware mesh channel assignment** — C6/S3 headless nodes never receive 5 GHz JCMK channel indices; dual-band C5 nodes keep full-table slices.
+- **Board-specific mesh OTA images** — `/Firmware/PigletNodeC6.ota.bin` and `PigletNodeS3.ota.bin` with ESP chip ID verification before push.
+- **Core mesh overview OLED** — page 5 shows node counts (C6/S3/C5), GPS, scan state, local + forwarded totals.
+
+### Configuration
+- Master feedback: `deviceRole`, `ws2811*`, `buzzer*`, `alertGpsFix`, `alertNodeDisconnect` (see `examples/wardriver-cluster-master.cfg`).
+
+---
+
 ## v3.01 (2026-11-04)
 
 ### New Features

@@ -76,8 +76,10 @@ static_assert(sizeof(pig_ota_data_t)  <= 250, "pig_ota_data_t must fit one ESP-N
 //  coreOtaStart() in MeshNode.cpp / the Core section of each .ino.
 // ================================================================
 enum PigletBoardType : uint8_t {
-  PIGLET_BOARD_NODE    = 0,  // PigletNode (headless mesh node)
+  PIGLET_BOARD_NODE    = 0,  // PigletNode (headless mesh node, XIAO ESP32-C5)
   PIGLET_BOARD_XIAO    = 1,  // main Piglet (XIAO ESP32-S3/C5/C6/C3)
   PIGLET_BOARD_TDONGLE = 2,  // TDongleC5_Piglet
+  PIGLET_BOARD_C6      = 3,  // PigletNodeC6 (headless ESP32-C6, 2.4 GHz only)
+  PIGLET_BOARD_S3_NODE = 4,  // PigletNodeS3 (headless ESP32-S3, 2.4 GHz only)
   PIGLET_BOARD_UNKNOWN = 0xFF // sender didn't include a board-type byte (pre-v3.0 Piglet node)
 };
