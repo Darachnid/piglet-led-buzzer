@@ -763,11 +763,13 @@ void loop() {
   // call, so it never blocks scanning, GPS, or the display.
   wdgwarsServicePendingJobs();
 
-  // Scanning – page-aware logic
-  // Mesh node page handles its own scan via nodeModeTick(); skip normal path.
-  if (currentPage == 5) {
-    if (meshCoreActive) coreModeTick();
-    else                nodeModeTick();
+  // Core mode owns the radio on channel 6. Keep servicing nodes on every
+  // OLED page — leaving the mesh page used to start a normal Wi-Fi scan and
+  // pull the Core off the ESP-NOW channel.
+  if (meshCoreActive) {
+    coreModeTick();
+  } else if (currentPage == 5) {
+    nodeModeTick();
   } else {
     autoPaused = shouldPauseScanning();
     wifi_mode_t m = WiFi.getMode();

@@ -1202,10 +1202,12 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
           uint8_t nxt = (coreReqTail + 1) % CORE_REQ_QUEUE;
           if (nxt != coreReqHead) {
             memcpy(coreReqBuf[coreReqTail].mac, info->src_addr, 6);
-            coreReqBuf[coreReqTail].isBiscuit = (len >= (int)sizeof(jcmk_text_msg_t));
-            // TEXT carries scan-line data, not the marker -- a node rediscovered
-            // via TEXT (rare; HEARTBEAT/CORE_REQUEST arrive far more often) is
-            // conservatively treated as non-Piglet until its next heartbeat.
+            // A scan line is 212 bytes, same as a Biscuit frame, but it is not a
+            // Biscuit handshake and it carries no Piglet marker. Treating it as
+            // Biscuit makes the Core push channels 1-177, which an S3/C6 cannot
+            // tune. Stay on packed JCMK ADMIN until a HEARTBEAT or CORE_REQUEST
+            // identifies the peer.
+            coreReqBuf[coreReqTail].isBiscuit = false;
             coreReqBuf[coreReqTail].isPiglet  = false;
             coreReqBuf[coreReqTail].boardType = PIGLET_BOARD_UNKNOWN;
             coreReqBuf[coreReqTail].version[0] = '\0';
@@ -2070,7 +2072,13 @@ void coreModeTick() {
   // 4. Node timeout check
   bool changed = false;
   for (uint8_t i = 0; i < CORE_MAX_NODES; i++) {
-    if (coreNodes[i].active && (now - coreNodes[i].lastHbMs) > CORE_NODE_TIMEOUT) {
+    // Signed elapsed time. lastHbMs is stamped with millis() inside this
+    // same tick (and from the ESP-NOW callback), which can be a few
+    // milliseconds newer than `now`. An unsigned subtract then underflows
+    // and looks like a 90 s timeout, so the node is deleted immediately
+    // and the next scan line is re-added as a Biscuit peer.
+    int32_t idleMs = (int32_t)(now - coreNodes[i].lastHbMs);
+    if (coreNodes[i].active && idleMs > (int32_t)CORE_NODE_TIMEOUT) {
       Serial.printf("[CORE] Node %d timed out\n", i);
       esp_now_del_peer(coreNodes[i].mac);
       memset(&coreNodes[i], 0, sizeof(CoreNodeInfo));
