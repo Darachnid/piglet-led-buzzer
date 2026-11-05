@@ -137,7 +137,7 @@ static bool     haveCore      = false;
 static bool     plainBiscuit  = false;
 static uint8_t  coreMac[6]   = {0};
 static uint8_t  startIdx      = 0;
-static uint8_t  endIdx        = NUM_CHANNELS - 1;  // default = all channels
+static uint8_t  endIdx        = MAX_JCMK_CH_IDX;  // 2.4 GHz only until Core assigns
 static uint8_t  assignVer     = 0;
 static uint32_t netFound      = 0;
 static uint32_t netSent       = 0;
@@ -270,8 +270,8 @@ static void biscuitSetChannels(const jcmk_text_msg_t* msg) {
       count = 0;
       break;
     }
-    if (channel == 104 || channel == 108) {
-      channels[count++] = (uint8_t)channel;
+    if (channel > 14) {
+      // ESP32-S3 cannot scan 5 GHz; drop those entries from a Biscuit list.
     } else {
       for (uint8_t i = 0; i < NUM_CHANNELS; i++) {
         if (CHANNELS[i] == channel) { channels[count++] = (uint8_t)channel; break; }
@@ -518,7 +518,7 @@ static void resetToSearching() {
   biscuitChannelCount = 0;
   assignVer    = 0;
   startIdx     = 0;
-  endIdx       = NUM_CHANNELS - 1;  // default = all channels until Core assigns a range
+  endIdx       = MAX_JCMK_CH_IDX;  // 2.4 GHz only until Core assigns a range
   hbCounter    = 0;
   lastHbMs     = 0;
   lastReqMs    = 0;
@@ -567,6 +567,7 @@ static void scanTick() {
     uint8_t chIdx = startIdx + scanChOffset;
     if (!biscuitChannelCount && chIdx >= NUM_CHANNELS) { scanChOffset++; return; }
     uint8_t channel = biscuitChannelCount ? biscuitChannels[scanChOffset] : CHANNELS[chIdx];
+    if (channel > 14) { scanChOffset++; return; }  // S3 is 2.4 GHz only
 
     int16_t rc = WiFi.scanNetworks(/*async*/true, /*hidden*/true,
                                    /*passive*/false, SCAN_DWELL_MS, channel);

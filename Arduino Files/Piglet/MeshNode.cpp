@@ -1458,7 +1458,10 @@ static void coreFindOrAddNode(const uint8_t* mac, bool isBiscuit, bool isPiglet,
       coreNodes[i].lastHbMs = millis();
       // A node can go from "not yet confirmed Piglet" to confirmed once its
       // first HEARTBEAT/CORE_REQUEST with the marker arrives; never downgrade.
-      if (isPiglet) coreNodes[i].isPiglet = true;
+      if (isPiglet) {
+        coreNodes[i].isPiglet = true;
+        coreNodes[i].isBiscuit = false;
+      }
       if (coreNodes[i].boardType == PIGLET_BOARD_UNKNOWN) coreNodes[i].boardType = boardType;
       // A changed version (e.g. just pushed a firmware update and rebooted)
       // needs a fresh mismatch evaluation -- clear any stale decline/attempt.
@@ -1480,7 +1483,10 @@ static void coreFindOrAddNode(const uint8_t* mac, bool isBiscuit, bool isPiglet,
       coreNodes[i].updateDeclined      = false;
       coreNodes[i].autoUpdateAttempted = false;
       coreNodes[i].recordsRx = 0;
-      coreNodes[i].isBiscuit = isBiscuit;
+      // Piglet-family nodes also send 212-byte frames (same size test as
+      // Biscuit). They must get packed JCMK ADMIN, not a Biscuit channel
+      // string that includes 5 GHz — ESP32-S3/C6 cannot tune those channels.
+      coreNodes[i].isBiscuit = isBiscuit && !isPiglet;
       coreNodes[i].isPiglet  = isPiglet;
       coreNodes[i].boardType = boardType;
       coreNodes[i].slotIndex = 0;  // assigned by coreReassignChannels() below
@@ -1564,7 +1570,7 @@ static void coreReassignChannels() {
   // - JCMK:    jcmk_admin_msg_t (type=5, packed binary channel indices)
   for (uint8_t n = 0; n < count; n++) {
     uint8_t slot = slots[n];
-    if (coreNodes[slot].isBiscuit) {
+    if (coreNodes[slot].isBiscuit && !coreNodes[slot].isPiglet) {
       coreSendBiscuitRoleAndConfig(coreNodes[slot].mac,
                                    coreNodes[slot].startIdx,
                                    coreNodes[slot].endIdx);
@@ -1597,7 +1603,7 @@ static void coreResendAdminToAll() {
   uint8_t n = 0;
   for (uint8_t i = 0; i < CORE_MAX_NODES; i++) {
     if (!coreNodes[i].active) continue;
-    if (coreNodes[i].isBiscuit) {
+    if (coreNodes[i].isBiscuit && !coreNodes[i].isPiglet) {
       coreSendBiscuitRoleAndConfig(coreNodes[i].mac,
                                    coreNodes[i].startIdx,
                                    coreNodes[i].endIdx);
