@@ -765,7 +765,7 @@ struct CoreOtaImage {
   char        failMsg[28];  // why this image is not loaded
 };
 static CoreOtaImage coreOtaImages[] = {
-  { PIGLET_BOARD_NODE,    "/Firmware/PigletNode.ota.bin",       "C5Node",  CORE_OTA_CHIP_ESP32C5, nullptr, 0, 0, {0}, {0} },
+  { PIGLET_BOARD_NODE,    "/Firmware/PigletNodeC5.ota.bin",     "C5Node",  CORE_OTA_CHIP_ESP32C5, nullptr, 0, 0, {0}, {0} },
   { PIGLET_BOARD_C6,      "/Firmware/PigletNodeC6.ota.bin",     "C6Node",  CORE_OTA_CHIP_ESP32C6, nullptr, 0, 0, {0}, {0} },
   { PIGLET_BOARD_S3_NODE, "/Firmware/PigletNodeS3.ota.bin",     "S3Node",  CORE_OTA_CHIP_ESP32S3, nullptr, 0, 0, {0}, {0} },
   { PIGLET_BOARD_XIAO,    "/Firmware/Piglet.ota.bin",           "XIAO",    0,                     nullptr, 0, 0, {0}, {0} },
@@ -810,8 +810,13 @@ static void coreOtaLoadFail(const char* m) {
 static void coreOtaLoadOne(CoreOtaImage& im) {
   if (im.image) { heap_caps_free(im.image); im.image = nullptr; }
   im.size = 0; im.chunks = 0; im.failMsg[0] = 0;
-  if (!SD.exists(im.path)) { snprintf(im.failMsg, sizeof(im.failMsg), "NO IMAGE ON SD"); return; }
-  File f = SD.open(im.path, FILE_READ);
+  const char* path = im.path;
+  // Older SD cards staged the upstream C5 image under this name.
+  if (!SD.exists(path) && im.boardType == PIGLET_BOARD_NODE && SD.exists("/Firmware/PigletNode.ota.bin")) {
+    path = "/Firmware/PigletNode.ota.bin";
+  }
+  if (!SD.exists(path)) { snprintf(im.failMsg, sizeof(im.failMsg), "NO IMAGE ON SD"); return; }
+  File f = SD.open(path, FILE_READ);
   if (!f) { snprintf(im.failMsg, sizeof(im.failMsg), "CANNOT OPEN IMAGE"); return; }
   uint32_t size = (uint32_t)f.size();
   if (size < 1024 || size > CORE_OTA_MAX_IMAGE) {

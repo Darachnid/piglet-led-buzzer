@@ -57,6 +57,13 @@ jobs:
             display_lib: none
             needs_ble: false
             needs_neopixel: false
+          - name: PigletNodeC5
+            sketch_dir: "PigletNodeC5"
+            sketch_bin: "PigletNodeC5.ino.bin"
+            fqbn: "esp32:esp32:XIAO_ESP32C5:${{ env.FQBN_BASE }},PSRAM=enabled"
+            display_lib: none
+            needs_ble: false
+            needs_neopixel: false
           - name: PigletNodeC6
             sketch_dir: "PigletNodeC6"
             sketch_bin: "PigletNodeC6.ino.bin"
@@ -183,7 +190,7 @@ jobs:
           # they're about to flash, instead of just the overall release tag.
           XIAO_VER="$(grep -oE '#define FIRMWARE_VERSION "[^"]+"' "Arduino Files/Piglet/Globals.h" | sed -E 's/.*"(.*)"/\1/')"
           TDONGLE_VER="$(grep -oE '#define FIRMWARE_VERSION "[^"]+"' "TDongleC5_Piglet/TDongleC5_Piglet.ino" | sed -E 's/.*"(.*)"/\1/')"
-          NODE_VER="$(grep -oE '#define FIRMWARE_VERSION "[^"]+"' "PigletNode/PigletNode.ino" | sed -E 's/.*"(.*)"/\1/')"
+          NODE_VER="$(grep -oE '#define FIRMWARE_VERSION "[^"]+"' "PigletNodeC5/PigletNodeC5.ino" | sed -E 's/.*"(.*)"/\1/')"
           NODE_C6_VER="$(grep -oE '#define FIRMWARE_VERSION "[^"]+"' "PigletNodeC6/PigletNodeC6.ino" | sed -E 's/.*"(.*)"/\1/')"
           NODE_S3_VER="$(grep -oE '#define FIRMWARE_VERSION "[^"]+"' "PigletNodeS3/PigletNodeS3.ino" | sed -E 's/.*"(.*)"/\1/')"
           cat > release_assets/versions.json <<EOF
@@ -215,6 +222,7 @@ jobs:
             echo "### Firmware Versions"
             echo "- Main Piglet (XIAO S3/C5/C6/C3): \`$(grep -oE '#define FIRMWARE_VERSION "[^"]+"' "Arduino Files/Piglet/Globals.h" | sed -E 's/.*"(.*)"/\1/')\`"
             echo "- T-Dongle C5: \`$(grep -oE '#define FIRMWARE_VERSION "[^"]+"' "TDongleC5_Piglet/TDongleC5_Piglet.ino" | sed -E 's/.*"(.*)"/\1/')\`"
+            echo "- PigletNodeC5: \`$(grep -oE '#define FIRMWARE_VERSION "[^"]+"' "PigletNodeC5/PigletNodeC5.ino" | sed -E 's/.*"(.*)"/\1/')\`"
             echo "- PigletNode: \`$(grep -oE '#define FIRMWARE_VERSION "[^"]+"' "PigletNode/PigletNode.ino" | sed -E 's/.*"(.*)"/\1/')\`"
           } >> release_notes.md
 

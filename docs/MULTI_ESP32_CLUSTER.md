@@ -7,7 +7,7 @@ This document describes the coordinated master + headless scanner layout added o
 | Target | Sketch | Board (Arduino) | Role |
 |--------|--------|-----------------|------|
 | ESP32-S3 controller | `Arduino Files/Piglet/Piglet.ino` | **XIAO_ESP32S3** (recommended master) | GPS, SD, OLED, Web UI, mesh **Core**, optional WS2811 + buzzer |
-| ESP32-C5 scanner | `PigletNode/PigletNode.ino` | **XIAO_ESP32C5** | Headless dual-band node (existing) |
+| ESP32-C5 scanner | `PigletNodeC5/PigletNodeC5.ino` | **XIAO_ESP32C5** | Headless **dual-band** (2.4 + 5 GHz). `PigletNode/` is the older upstream sketch |
 | ESP32-C6 scanner | `PigletNodeC6/PigletNodeC6.ino` | **XIAO_ESP32C6** | Headless **2.4 GHz only** |
 | ESP32-S3 scanner | `PigletNodeS3/PigletNodeS3.ino` | **XIAO_ESP32S3** | Headless **2.4 GHz only** |
 
@@ -32,7 +32,7 @@ FQBN_C6="esp32:esp32:XIAO_ESP32C6:CDCOnBoot=cdc,PartitionScheme=default"
 arduino-cli compile --fqbn "$FQBN_S3" "Arduino Files/Piglet"
 arduino-cli compile --fqbn "$FQBN_C6" PigletNodeC6
 arduino-cli compile --fqbn "$FQBN_S3" PigletNodeS3
-arduino-cli compile --fqbn "$FQBN_C5" PigletNode
+arduino-cli compile --fqbn "$FQBN_C5" PigletNodeC5
 ```
 
 ## Master wiring (ESP32-S3)
@@ -84,7 +84,7 @@ Headless nodes: no SD config required; board type is fixed in firmware.
 - JCMK ESP-NOW pairing, heartbeats, ADMIN channel assignments, and TEXT record forwarding are unchanged.
 - **Capability-aware assignment:** C6 and S3 headless nodes only receive JCMK index range **0–13** (2.4 GHz). Dual-band C5 nodes receive slices across the full 40-channel table.
 - Core OLED page 5 shows cluster totals: nodes, C6/S3/C5 counts, local net count, mesh records received, scan state, GPS.
-- **OTA:** Separate SD images per board type (`/Firmware/PigletNodeC6.ota.bin`, `PigletNodeS3.ota.bin`, …). Images are validated by ESP chip ID before load/push — never flash C6 firmware onto S3 or vice versa. `Piglet.ota.bin` remains C5-only for ambiguous `PIGLET_BOARD_XIAO` pushes.
+- **OTA:** Separate SD images per board type (`/Firmware/PigletNodeC5.ota.bin`, `PigletNodeC6.ota.bin`, `PigletNodeS3.ota.bin`). Images are validated by ESP chip ID before load/push — never flash C6 firmware onto S3 or C5. The Core still accepts the older `/Firmware/PigletNode.ota.bin` name for a C5 scanner. `Piglet.ota.bin` remains the full XIAO image, not a headless node image.
 
 ## LED / buzzer (master only)
 
