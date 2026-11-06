@@ -3,6 +3,8 @@
 #include "Scanner.h"
 #include "WigleUpload.h"
 #include "esp_netif.h"
+#include "ConsoleTap.h"
+#define Serial CueConsole
 
 // ---- STA disconnect helper ----
 

@@ -2,6 +2,7 @@
 #include "Config.h"
 #include "Globals.h"
 #include <Adafruit_NeoPixel.h>
+#include <vector>
 
 #if defined(CONFIG_IDF_TARGET_ESP32S3)
   #define MASTER_FEEDBACK_HW 1
@@ -20,8 +21,17 @@ static const uint32_t GPS_HYST_MS = 4000;
 
 static bool criticalError = false;
 static bool scanActive    = false;
+static bool hwReady       = false;
+static bool powerChirped  = false;
+static bool bootComplete  = false;
 static uint32_t nodeDiscUntilMs = 0;
-static uint32_t bootPulseUntilMs = 0;
+static uint32_t cueUntilMs = 0;
+static uint32_t yellowUntilMs = 0;
+static uint8_t cueR = 0, cueG = 0, cueB = 0;
+
+static std::vector<uint32_t> seenMacs;
+static uint32_t chirpWindowMs = 0;
+static uint8_t chirpsThisWindow = 0;
 
 static bool passiveBuzzer = false;
 static uint8_t buzzerDuty = 128;
@@ -36,26 +46,17 @@ static bool     beepOnPhase = true;
 static bool     buzzerPinAttached = false;
 
 enum LedMode : uint8_t {
-  LED_BOOT_PULSE,
-  LED_GPS_SEARCH,
-  LED_GPS_FIX,
-  LED_GPS_LOST_FLASH,
+  LED_INIT_BLUE,
+  LED_CUE,
+  LED_YELLOW,
   LED_SCAN_PULSE,
   LED_NODE_DISC,
   LED_CRITICAL,
 };
 
-static LedMode currentLedMode = LED_BOOT_PULSE;
+static LedMode currentLedMode = LED_INIT_BLUE;
 static uint32_t ledPhaseMs = 0;
 static bool ledPhaseState = false;
-
-static bool masterHardwareEnabled() {
-#if !MASTER_FEEDBACK_HW
-  return false;
-#endif
-  if (cfg.deviceRole == "node") return false;
-  return cfg.ws2811Enable || cfg.buzzerEnable;
-}
 
 static bool rgbEnabled() {
   return MASTER_FEEDBACK_HW && cfg.ws2811Enable && cfg.ws2811Pin >= 0 && cfg.deviceRole != "node";
@@ -63,6 +64,11 @@ static bool rgbEnabled() {
 
 static bool buzzerEnabled() {
   return MASTER_FEEDBACK_HW && cfg.buzzerEnable && cfg.buzzerPin >= 0 && cfg.deviceRole != "node";
+}
+
+// Power chirp and new-network ticks use the pin even when the mute flag is off.
+static bool buzzerPinOk() {
+  return MASTER_FEEDBACK_HW && cfg.buzzerPin >= 0 && cfg.deviceRole != "node";
 }
 
 static void buzzerStop() {
@@ -127,12 +133,11 @@ static void rgbSet(uint8_t r, uint8_t g, uint8_t b) {
 
 static LedMode pickLedMode(uint32_t now) {
   if (criticalError) return LED_CRITICAL;
+  if (now < yellowUntilMs) return LED_YELLOW;
   if (now < nodeDiscUntilMs) return LED_NODE_DISC;
-  if (now < bootPulseUntilMs) return LED_BOOT_PULSE;
-  if (gpsAlertPending && now - gpsLostAtMs < 400) return LED_GPS_LOST_FLASH;
-  if (scanActive && gpsFixHyst) return LED_SCAN_PULSE;
-  if (gpsFixHyst) return LED_GPS_FIX;
-  return LED_GPS_SEARCH;
+  if (now < cueUntilMs) return LED_CUE;
+  if (!bootComplete) return LED_INIT_BLUE;
+  return LED_SCAN_PULSE;
 }
 
 static void ledTick(uint32_t now) {
@@ -145,23 +150,19 @@ static void ledTick(uint32_t now) {
   }
 
   switch (currentLedMode) {
-    case LED_BOOT_PULSE:
-      rgbSet(255, 255, 255);
+    case LED_INIT_BLUE:
+      rgbSet(0, 40, 255);
       break;
-    case LED_GPS_SEARCH:
-      if (now - ledPhaseMs >= 900) { ledPhaseMs = now; ledPhaseState = !ledPhaseState; }
-      rgbSet(ledPhaseState ? 180 : 0, ledPhaseState ? 90 : 0, 0);
+    case LED_CUE:
+      rgbSet(cueR, cueG, cueB);
       break;
-    case LED_GPS_FIX:
-      rgbSet(0, 200, 0);
-      break;
-    case LED_GPS_LOST_FLASH:
-      rgbSet(255, 0, 0);
+    case LED_YELLOW:
+      rgbSet(255, 200, 0);
       break;
     case LED_SCAN_PULSE:
-      if (now - ledPhaseMs >= 120) { ledPhaseMs = now; ledPhaseState = !ledPhaseState; }
-      if (ledPhaseState) rgbSet(0, 180, 255);
-      else rgbSet(0, 200, 0);
+      if (now - ledPhaseMs >= 380) { ledPhaseMs = now; ledPhaseState = !ledPhaseState; }
+      if (ledPhaseState) rgbSet(255, 0, 0);
+      else rgbSet(150, 0, 255);
       break;
     case LED_NODE_DISC:
       rgbSet(160, 0, 200);
@@ -194,13 +195,15 @@ static void gpsSample(bool hasFix, uint32_t now) {
   }
 }
 
-void masterFeedbackInit() {
-  if (!masterHardwareEnabled()) return;
+static void hwInit() {
+  if (hwReady) return;
+  if (!MASTER_FEEDBACK_HW || cfg.deviceRole == "node") return;
+  if (!cfg.ws2811Enable && !buzzerPinOk()) return;
 
   buzzerDuty = (uint8_t)cfg.buzzerVolume;
   if (buzzerDuty == 0) buzzerDuty = 128;
   passiveBuzzer = (cfg.buzzerType == "passive");
-  if (buzzerEnabled()) pinMode(cfg.buzzerPin, OUTPUT);
+  if (buzzerPinOk()) pinMode(cfg.buzzerPin, OUTPUT);
 
   if (rgbEnabled()) {
     rgb = new Adafruit_NeoPixel(1, cfg.ws2811Pin, NEO_GRB + NEO_KHZ800);
@@ -209,12 +212,106 @@ void masterFeedbackInit() {
     rgb->clear();
     rgb->show();
   }
-
-  bootPulseUntilMs = millis() + 300;
-  if (cfg.buzzerEnable && cfg.buzzerStartupTone) queueBeeps(1, 880, 80, 0);
+  hwReady = true;
 }
 
-void masterFeedbackNotifyBootComplete() {}
+static void buzzerPulseBlocking(uint16_t freq, uint16_t onMs, uint8_t duty) {
+  if (!buzzerPinOk() || onMs == 0) return;
+  if (passiveBuzzer) {
+    if (buzzerPinAttached) {
+      ledcDetach(cfg.buzzerPin);
+      buzzerPinAttached = false;
+    }
+    ledcAttach(cfg.buzzerPin, freq, 8);
+    buzzerPinAttached = true;
+    ledcWrite(cfg.buzzerPin, duty);
+    delay(onMs);
+    ledcWrite(cfg.buzzerPin, 0);
+    ledcDetach(cfg.buzzerPin);
+    buzzerPinAttached = false;
+  } else {
+    pinMode(cfg.buzzerPin, OUTPUT);
+    digitalWrite(cfg.buzzerPin, HIGH);
+    delay(onMs);
+    digitalWrite(cfg.buzzerPin, LOW);
+  }
+}
+
+static void holdCue(uint8_t r, uint8_t g, uint8_t b, uint32_t ms) {
+  cueR = r;
+  cueG = g;
+  cueB = b;
+  cueUntilMs = millis() + ms;
+  rgbSet(r, g, b);
+}
+
+static uint32_t macHash(const char* mac) {
+  uint32_t h = 2166136261u;
+  for (const char* p = mac; *p; ++p) {
+    h ^= (uint8_t)*p;
+    h *= 16777619u;
+  }
+  return h ? h : 1u;
+}
+
+void masterFeedbackPowerOn() {
+  hwInit();
+  if (powerChirped) return;
+  powerChirped = true;
+  bootComplete = false;
+  holdCue(0, 40, 255, 60000);
+  // "doo" then "dee" — two notes, played here so they are heard before
+  // the rest of setup blocks the main loop.
+  if (buzzerPinOk()) {
+    buzzerPulseBlocking(392, 170, 160);
+    delay(55);
+    buzzerPulseBlocking(587, 90, 140);
+  }
+}
+
+void masterFeedbackOnConsoleLine(const char* line) {
+  if (!line || !hwReady) return;
+  if (strstr(line, "[GPS]")) {
+    holdCue(0, 255, 50, 280);
+  } else if (strstr(line, "[WIFI]") || strstr(line, "[NET]") || strstr(line, "[FWUPD]")) {
+    holdCue(255, 150, 30, 280);  // light orange
+  } else if (strstr(line, "[WDGWars]")) {
+    holdCue(160, 0, 255, 280);
+  } else if (strstr(line, "[WiGLE]")) {
+    holdCue(255, 40, 150, 280);
+  }
+}
+
+void masterFeedbackNoteNetwork(const char* bssid) {
+  if (!bssid || !bssid[0]) return;
+  uint32_t h = macHash(bssid);
+  for (uint32_t v : seenMacs) {
+    if (v == h) return;
+  }
+  if (seenMacs.size() < 8000) seenMacs.push_back(h);
+
+  yellowUntilMs = millis() + 120;
+  rgbSet(255, 200, 0);
+
+  uint32_t now = millis();
+  if (now - chirpWindowMs > 1000) {
+    chirpWindowMs = now;
+    chirpsThisWindow = 0;
+  }
+  if (chirpsThisWindow >= 150) return;
+  if (beepRemaining) return;
+  chirpsThisWindow++;
+  buzzerPulseBlocking(3300, 6, 16);
+}
+
+void masterFeedbackInit() {
+  hwInit();
+}
+
+void masterFeedbackNotifyBootComplete() {
+  bootComplete = true;
+  cueUntilMs = 0;
+}
 
 void masterFeedbackOnGpsFixChange(bool hasFix) {
   (void)hasFix;
@@ -234,7 +331,8 @@ void masterFeedbackSetScanningActive(bool active) {
 }
 
 void masterFeedbackTick() {
-  if (!masterHardwareEnabled()) return;
+  if (!hwReady) return;
+  (void)scanActive;
   uint32_t now = millis();
   gpsSample(gpsHasFix, now);
   if (gpsAlertPending && now - gpsLostAtMs >= 400) gpsAlertPending = false;

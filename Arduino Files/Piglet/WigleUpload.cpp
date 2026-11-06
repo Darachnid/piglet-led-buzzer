@@ -4,6 +4,8 @@
 #include "Display.h"
 #include <WiFiClientSecure.h>
 #include <vector>
+#include "ConsoleTap.h"
+#define Serial CueConsole
 
 static const char*     WDGWARS_HOST = "wdgwars.pl";
 static const uint16_t  WDGWARS_PORT = 443;

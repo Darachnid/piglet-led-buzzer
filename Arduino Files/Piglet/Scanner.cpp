@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "GPS.h"
 #include "SDUtils.h"
+#include "MasterFeedback.h"
 
 static String authModeToString(wifi_auth_mode_t m) {
   switch (m) {
@@ -78,6 +79,8 @@ static void processScanResults(int n) {
 
     if (is2g) networksFound2G++;
     else      networksFound5G++;
+
+    masterFeedbackNoteNetwork(mac.c_str());
 
     if (appendWigleRow(mac, ssid, authStr, firstSeen, ch, rssi, lat, lon, altM, accM)) wrote++;
   }

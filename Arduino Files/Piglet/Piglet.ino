@@ -41,6 +41,8 @@
 
 // -------- Battery Test (uncomment to enable) --------
 #include "battery_test.h"
+#include "ConsoleTap.h"
+#define Serial CueConsole
 
 // ---------------- Deep Sleep ----------------
 static const uint32_t LONG_PRESS_MS = 2000;
@@ -364,6 +366,10 @@ void setup() {
     }
   }
 
+  // Pins and cfg are settled. Blue init lamp and the power-on chirp
+  // happen here, before GPS / Wi-Fi / upload logging.
+  masterFeedbackPowerOn();
+
   // Mesh Core OTA images: load once now (PSRAM-resident) so that entering
   // Core mode later via long-press -- with no reboot in between -- already
   // has whatever /Firmware/*.ota.bin images are on the card ready to push.
@@ -621,6 +627,7 @@ void setup() {
   btnBootSettleUntilMs = millis() + BTN_BOOT_SETTLE_MS;
 
   Serial.println("=== Boot complete ===");
+  masterFeedbackNotifyBootComplete();
 }
 
 // ================================================================

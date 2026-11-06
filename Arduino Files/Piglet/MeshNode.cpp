@@ -1670,6 +1670,7 @@ static void coreParseAndLogText(const char* line) {
     accM = gps.hdop.hdop();
   }
   wardriveGoPushAp(bssid, ssid, auth, ch, rssi);
+  masterFeedbackNoteNetwork(bssid.c_str());
   if (appendWigleRow(bssid, ssid, auth, iso8601NowUTC(), ch, rssi, lat, lon, altM, accM)) {
     coreRecordsRx++;
   }
@@ -1764,6 +1765,7 @@ static void nodeDoScanTick() {
         // Pushed before the Biscuit bracket-notation rewrite below so the
         // phone always gets the plain WiGLE-style auth token (OPEN/WPA2/...).
         wardriveGoPushAp(bssid, ssid, auth, ch, rssi);
+        masterFeedbackNoteNetwork(bssid.c_str());
         if (biscuitPlainReplyPending) {
           if (auth == "OPEN") auth = "[OPEN]";
           else if (auth == "WEP") auth = "[WEP]";
@@ -1796,6 +1798,7 @@ static void nodeDoScanTick() {
         int    ch    = WiFi.channel(i);
         int    rssi  = WiFi.RSSI(i);
         wardriveGoPushAp(bssid, ssid, auth, ch, rssi);
+        masterFeedbackNoteNetwork(bssid.c_str());
         String line  = bssid + "," + ssid + "," + auth + ","
                      + String(ch) + "," + String(rssi) + ",W";
         jcmkPendingPush(line);

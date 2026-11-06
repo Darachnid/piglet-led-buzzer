@@ -5,6 +5,8 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Update.h>
+#include "ConsoleTap.h"
+#define Serial CueConsole
 
 // This board's own release asset, plus the other two boards' assets staged
 // into /Firmware/ for the mesh Core-push engine (MeshNode.cpp's
